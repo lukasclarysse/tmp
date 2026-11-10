@@ -1,0 +1,484 @@
+
+{% extends "base.html" %}
+
+{% block title %}Proofreading Results{% endblock %}
+
+{% block content %}
+
+<h1>Proofreading Results</h1>
+
+<p>
+    Review the suggested corrections below.
+    Accept or reject individual suggestions before downloading.
+</p>
+
+<style>
+    .proofread-card {
+        background: #fffdf9;
+        padding: 25px;
+        margin-bottom: 25px;
+        border-radius: 12px;
+        border: 1px solid #eee6dc;
+    }
+
+    .proofread-card h2 {
+        margin-top: 0;
+    }
+
+    .preview-text {
+        line-height: 2;
+        font-size: 16px;
+        color: #514b46;
+        white-space: pre-wrap;
+    }
+
+    .removed {
+        background: #f8dedd;
+        color: #a64f4f;
+        text-decoration: line-through;
+        padding: 2px 4px;
+        border-radius: 4px;
+    }
+
+    .added {
+        background: #dcefe0;
+        color: #39784a;
+        padding: 2px 4px;
+        border-radius: 4px;
+        font-weight: 600;
+    }
+
+    .change-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 15px;
+        padding: 15px 0;
+        border-bottom: 1px solid #eee6dc;
+    }
+
+    .change-item:last-child {
+        border-bottom: none;
+    }
+
+    .change-description {
+        flex: 1;
+    }
+
+    .change-description small {
+        display: block;
+        color: #a39a90;
+        margin-top: 5px;
+    }
+
+    .change-item label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .change-item input {
+        width: auto;
+        margin: 0;
+        accent-color: #87977f;
+    }
+
+    .change-item.rejected {
+        opacity: 0.55;
+    }
+
+    .change-item.accepted {
+        background: #f4f8f2;
+        border-radius: 6px;
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+
+    .status-label {
+        font-size: 12px;
+        color: #75866f;
+        margin-top: 5px;
+    }
+
+    .summary {
+        background: #f2f5ef;
+        padding: 15px 20px;
+        border-radius: 9px;
+        margin-bottom: 25px;
+    }
+
+    .summary p {
+        margin: 4px 0;
+    }
+
+    @media (max-width: 600px) {
+        .change-item {
+            align-items: flex-start;
+            flex-direction: column;
+        }
+    }
+</style>
+
+{% set total_changes = namespace(count=0) %}
+
+{% for paragraph in results %}
+    {% set total_changes.count = total_changes.count + paragraph.changes|length %}
+{% endfor %}
+
+<div class="summary">
+    <p>
+        <strong>{{ results|length }}</strong> paragraphs reviewed
+    </p>
+    <p>
+        <strong>{{ total_changes.count }}</strong> suggested corrections
+    </p>
+    <p>
+        <strong id="accepted-count">0</strong> corrections accepted
+    </p>
+</div>
+
+<form
+    action="{{ url_for(
+        'processing.download_corrected',
+        run_id=proofreading_run.id
+    ) }}"
+    method="POST"
+>
+
+    <input
+        type="hidden"
+        name="csrf_token"
+        value="{{ csrf_token() }}"
+    >
+
+    {% for paragraph in results %}
+
+        <section class="proofread-card">
+
+            <h2>Paragraph {{ loop.index }}</h2>
+
+            <h3>Live preview</h3>
+
+            <p class="preview-text" id="preview-{{ loop.index0 }}"></p>
+
+            <div
+                class="original-source"
+                id="original-{{ loop.index0 }}"
+                hidden
+            >{{ paragraph.original_text }}</div>
+
+            <div
+                class="corrected-source"
+                id="corrected-{{ loop.index0 }}"
+                hidden
+            >{{ paragraph.corrected_text }}</div>
+
+            {% if paragraph.changes %}
+
+                <h3>Suggested changes</h3>
+
+                {% for change in paragraph.changes %}
+
+                    <div class="change-item">
+
+                        <div class="change-description">
+
+                            <strong>
+                                <span class="removed">
+                                    {{ change.original }}
+                                </span>
+
+                                →
+                                
+                                <span class="added">
+                                    {{ change.replacement }}
+                                </span>
+                            </strong>
+
+                            <small>
+                                {{ change.category | capitalize }}
+                            </small>
+
+                            <p>
+                                {{ change.explanation }}
+                            </p>
+
+                            <div class="status-label">
+                                Not reviewed
+                            </div>
+
+                        </div>
+
+                        <label>
+                            <input
+                                type="checkbox"
+                                class="change-checkbox"
+                                name="accepted_changes"
+                                value="{{ paragraph.paragraph_id }}:{{ loop.index0 }}"
+                                data-paragraph="{{ loop.index0 }}"
+                                data-change="{{ loop.index0 }}"
+                            >
+
+                            Accept
+                        </label>
+
+                    </div>
+
+                {% endfor %}
+
+            {% else %}
+
+                <p class="hint">
+                    No corrections were necessary in this paragraph.
+                </p>
+
+            {% endif %}
+
+        </section>
+
+    {% endfor %}
+
+    <button type="submit" class="primary-button">
+        Download corrected document
+    </button>
+
+</form>
+
+<p>
+    <a href="{{ url_for('documents.dashboard') }}">
+        Back to my documents
+    </a>
+</p>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+
+        const checkboxes = document.querySelectorAll(
+            ".change-checkbox"
+        );
+
+        function updatePreview(paragraphIndex) {
+
+            const originalElement = document.getElementById(
+                "original-" + paragraphIndex
+            );
+
+            const correctedElement = document.getElementById(
+                "corrected-" + paragraphIndex
+            );
+
+            const previewElement = document.getElementById(
+                "preview-" + paragraphIndex
+            );
+
+            if (!originalElement || !correctedElement || !previewElement) {
+                return;
+            }
+
+            const original = originalElement.textContent.trim();
+            const corrected = correctedElement.textContent.trim();
+
+            const originalWords = original.split(/\s+/);
+            const correctedWords = corrected.split(/\s+/);
+
+            // Use word-level differences to identify changes.
+            const matrix = Array.from(
+                { length: originalWords.length + 1 },
+                () => Array(correctedWords.length + 1).fill(0)
+            );
+
+            // Build an LCS matrix.
+            for (let i = originalWords.length - 1; i >= 0; i--) {
+                for (let j = correctedWords.length - 1; j >= 0; j--) {
+
+                    if (originalWords[i] === correctedWords[j]) {
+                        matrix[i][j] = 1 + matrix[i + 1][j + 1];
+                    } else {
+                        matrix[i][j] = Math.max(
+                            matrix[i + 1][j],
+                            matrix[i][j + 1]
+                        );
+                    }
+                }
+            }
+
+            // Generate change groups.
+            const operations = [];
+
+            let i = 0;
+            let j = 0;
+
+            while (
+                i < originalWords.length ||
+                j < correctedWords.length
+            ) {
+
+                if (
+                    i < originalWords.length &&
+                    j < correctedWords.length &&
+                    originalWords[i] === correctedWords[j]
+                ) {
+
+                    operations.push({
+                        type: "equal",
+                        original: originalWords[i],
+                        replacement: correctedWords[j]
+                    });
+
+                    i++;
+                    j++;
+
+                } else {
+
+                    const startI = i;
+                    const startJ = j;
+
+                    while (
+                        i < originalWords.length &&
+                        j < correctedWords.length &&
+                        originalWords[i] !== correctedWords[j]
+                    ) {
+
+                        if (matrix[i + 1][j] >= matrix[i][j + 1]) {
+                            i++;
+                        } else {
+                            j++;
+                        }
+                    }
+
+                    while (
+                        i < originalWords.length &&
+                        (j >= correctedWords.length ||
+                        matrix[i + 1][j] >= matrix[i][j + 1])
+                    ) {
+                        i++;
+                    }
+
+                    while (
+                        j < correctedWords.length &&
+                        (i >= originalWords.length ||
+                        matrix[i][j + 1] > matrix[i + 1][j])
+                    ) {
+                        j++;
+                    }
+
+                    if (i === startI && j === startJ) {
+                        if (i < originalWords.length) i++;
+                        if (j < correctedWords.length) j++;
+                    }
+
+                    operations.push({
+                        type: "change",
+                        original: originalWords.slice(startI, i).join(" "),
+                        replacement: correctedWords.slice(startJ, j).join(" ")
+                    });
+                }
+            }
+
+            // Build a safe preview using DOM elements.
+            previewElement.replaceChildren();
+
+            let changeIndex = 0;
+
+            operations.forEach(operation => {
+
+                if (operation.type === "equal") {
+
+                    previewElement.appendChild(
+                        document.createTextNode(operation.original + " ")
+                    );
+
+                    return;
+                }
+
+                const checkbox = document.querySelector(
+                    '.change-checkbox[data-paragraph="' +
+                    paragraphIndex +
+                    '"][data-change="' +
+                    changeIndex +
+                    '"]'
+                );
+
+                const accepted = checkbox && checkbox.checked;
+
+                const span = document.createElement("span");
+
+                if (accepted) {
+
+                    span.className = "added";
+                    span.textContent = operation.replacement;
+
+                } else {
+
+                    span.className = "removed";
+                    span.textContent = operation.original;
+                }
+
+                previewElement.appendChild(span);
+
+                if (accepted) {
+                    previewElement.appendChild(
+                        document.createTextNode(" ")
+                    );
+                } else {
+                    previewElement.appendChild(
+                        document.createTextNode(" ")
+                    );
+                }
+
+                if (checkbox) {
+
+                    const status = checkbox
+                        .closest(".change-item")
+                        .querySelector(".status-label");
+
+                    status.textContent = accepted
+                        ? "Accepted"
+                        : "Rejected";
+
+                    checkbox.closest(".change-item").classList.toggle(
+                        "accepted",
+                        accepted
+                    );
+
+                    checkbox.closest(".change-item").classList.toggle(
+                        "rejected",
+                        !accepted
+                    );
+                }
+
+                changeIndex++;
+            });
+        }
+
+        function updateAll() {
+
+            const paragraphIndexes = new Set();
+
+            checkboxes.forEach(checkbox => {
+                paragraphIndexes.add(checkbox.dataset.paragraph);
+            });
+
+            paragraphIndexes.forEach(updatePreview);
+
+            const acceptedCount = Array.from(checkboxes)
+                .filter(checkbox => checkbox.checked)
+                .length;
+
+            document.getElementById(
+                "accepted-count"
+            ).textContent = acceptedCount;
+        }
+
+        checkboxes.forEach(checkbox => {
+            checkbox.addEventListener("change", updateAll);
+        });
+
+        updateAll();
+
+    });
+</script>
+
+{% endblock %}
