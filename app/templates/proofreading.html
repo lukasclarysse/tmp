@@ -9,7 +9,7 @@
 
 <p>
     Review the suggested corrections below.
-    Accept or reject individual suggestions before downloading.
+    Accept individual suggestions before downloading your corrected document.
 </p>
 
 <style>
@@ -30,6 +30,8 @@
         font-size: 16px;
         color: #514b46;
         white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        min-height: 30px;
     }
 
     .removed {
@@ -53,8 +55,10 @@
         justify-content: space-between;
         align-items: center;
         gap: 15px;
-        padding: 15px 0;
+        padding: 15px 10px;
         border-bottom: 1px solid #eee6dc;
+        border-radius: 6px;
+        transition: background 0.2s ease;
     }
 
     .change-item:last-child {
@@ -63,12 +67,17 @@
 
     .change-description {
         flex: 1;
+        min-width: 0;
     }
 
     .change-description small {
         display: block;
         color: #a39a90;
         margin-top: 5px;
+    }
+
+    .change-description p {
+        margin-bottom: 5px;
     }
 
     .change-item label {
@@ -83,23 +92,28 @@
         width: auto;
         margin: 0;
         accent-color: #87977f;
+        cursor: pointer;
     }
 
-    .change-item.rejected {
-        opacity: 0.55;
-    }
-
+    /* Only accepted changes receive a background. */
     .change-item.accepted {
         background: #f4f8f2;
-        border-radius: 6px;
-        padding-left: 10px;
-        padding-right: 10px;
+    }
+
+    /* Pending changes remain completely neutral. */
+    .change-item.pending {
+        opacity: 1;
+        background: transparent;
     }
 
     .status-label {
         font-size: 12px;
-        color: #75866f;
+        color: #a39a90;
         margin-top: 5px;
+    }
+
+    .change-item.accepted .status-label {
+        color: #62775c;
     }
 
     .summary {
@@ -114,6 +128,10 @@
     }
 
     @media (max-width: 600px) {
+        .proofread-card {
+            padding: 18px;
+        }
+
         .change-item {
             align-items: flex-start;
             flex-direction: column;
@@ -121,23 +139,34 @@
     }
 </style>
 
+
 {% set total_changes = namespace(count=0) %}
 
 {% for paragraph in results %}
-    {% set total_changes.count = total_changes.count + paragraph.changes|length %}
+    {% set total_changes.count =
+        total_changes.count + paragraph.changes|length %}
 {% endfor %}
 
+
 <div class="summary">
+
     <p>
-        <strong>{{ results|length }}</strong> paragraphs reviewed
+        <strong>{{ results|length }}</strong>
+        paragraphs reviewed
     </p>
+
     <p>
-        <strong>{{ total_changes.count }}</strong> suggested corrections
+        <strong>{{ total_changes.count }}</strong>
+        suggested corrections
     </p>
+
     <p>
-        <strong id="accepted-count">0</strong> corrections accepted
+        <strong id="accepted-count">0</strong>
+        corrections accepted
     </p>
+
 </div>
+
 
 <form
     action="{{ url_for(
@@ -145,6 +174,7 @@
         run_id=proofreading_run.id
     ) }}"
     method="POST"
+    id="proofreading-form"
 >
 
     <input
@@ -153,7 +183,11 @@
         value="{{ csrf_token() }}"
     >
 
+
     {% for paragraph in results %}
+
+        {# Store the outer loop index before entering nested loops. #}
+        {% set paragraph_index = loop.index0 %}
 
         <section class="proofread-card">
 
@@ -161,19 +195,18 @@
 
             <h3>Live preview</h3>
 
-            <p class="preview-text" id="preview-{{ loop.index0 }}"></p>
+            <p
+                class="preview-text"
+                id="preview-{{ paragraph_index }}"
+            ></p>
 
-            <div
-                class="original-source"
-                id="original-{{ loop.index0 }}"
-                hidden
-            >{{ paragraph.original_text }}</div>
 
-            <div
-                class="corrected-source"
-                id="corrected-{{ loop.index0 }}"
-                hidden
-            >{{ paragraph.corrected_text }}</div>
+            {# Store the canonical backend-generated diff. #}
+            <script
+                type="application/json"
+                id="segments-{{ paragraph_index }}"
+            >{{ paragraph.diff_segments | tojson }}</script>
+
 
             {% if paragraph.changes %}
 
@@ -181,20 +214,30 @@
 
                 {% for change in paragraph.changes %}
 
-                    <div class="change-item">
+                    <div
+                        class="change-item pending"
+                        data-paragraph="{{ paragraph_index }}"
+                        data-change="{{ change.index }}"
+                    >
 
                         <div class="change-description">
 
                             <strong>
-                                <span class="removed">
-                                    {{ change.original }}
-                                </span>
+
+                                {% if change.original %}
+                                    <span class="removed">{{ change.original }}</span>
+                                {% else %}
+                                    <span class="hint">Nothing</span>
+                                {% endif %}
 
                                 →
                                 
-                                <span class="added">
-                                    {{ change.replacement }}
-                                </span>
+                                {% if change.replacement %}
+                                    <span class="added">{{ change.replacement }}</span>
+                                {% else %}
+                                    <span class="hint">Nothing</span>
+                                {% endif %}
+
                             </strong>
 
                             <small>
@@ -211,17 +254,20 @@
 
                         </div>
 
+
                         <label>
+
                             <input
                                 type="checkbox"
                                 class="change-checkbox"
                                 name="accepted_changes"
-                                value="{{ paragraph.paragraph_id }}:{{ loop.index0 }}"
-                                data-paragraph="{{ loop.index0 }}"
-                                data-change="{{ loop.index0 }}"
+                                value="{{ paragraph.paragraph_id }}:{{ change.index }}"
+                                data-paragraph="{{ paragraph_index }}"
+                                data-change="{{ change.index }}"
                             >
 
                             Accept
+
                         </label>
 
                     </div>
@@ -240,11 +286,16 @@
 
     {% endfor %}
 
-    <button type="submit" class="primary-button">
+
+    <button
+        type="submit"
+        class="primary-button"
+    >
         Download corrected document
     </button>
 
 </form>
+
 
 <p>
     <a href="{{ url_for('documents.dashboard') }}">
@@ -252,233 +303,230 @@
     </a>
 </p>
 
-<script>
-    document.addEventListener("DOMContentLoaded", function () {
 
-        const checkboxes = document.querySelectorAll(
-            ".change-checkbox"
+<script>
+
+document.addEventListener("DOMContentLoaded", function () {
+
+    const checkboxes = document.querySelectorAll(
+        ".change-checkbox"
+    );
+
+    const acceptedCountElement = document.getElementById(
+        "accepted-count"
+    );
+
+
+    /*
+     * Cache diff segments separately for every paragraph.
+     */
+    const paragraphSegments = new Map();
+
+    document.querySelectorAll(
+        'script[id^="segments-"]'
+    ).forEach(element => {
+
+        const paragraphIndex = element.id.replace(
+            "segments-",
+            ""
         );
 
-        function updatePreview(paragraphIndex) {
+        try {
 
-            const originalElement = document.getElementById(
-                "original-" + paragraphIndex
+            paragraphSegments.set(
+                paragraphIndex,
+                JSON.parse(element.textContent)
             );
 
-            const correctedElement = document.getElementById(
-                "corrected-" + paragraphIndex
+        } catch (error) {
+
+            console.error(
+                "Failed to parse paragraph diff:",
+                paragraphIndex,
+                error
             );
 
-            const previewElement = document.getElementById(
-                "preview-" + paragraphIndex
-            );
+        }
 
-            if (!originalElement || !correctedElement || !previewElement) {
+    });
+
+
+    /*
+     * Build a lookup table for checkboxes.
+     * Each checkbox is identified by paragraph + change index.
+     */
+    const checkboxLookup = new Map();
+
+    checkboxes.forEach(checkbox => {
+
+        const key =
+            checkbox.dataset.paragraph +
+            ":" +
+            checkbox.dataset.change;
+
+        checkboxLookup.set(key, checkbox);
+
+    });
+
+
+    /*
+     * Render one paragraph using the backend diff segments.
+     */
+    function updatePreview(paragraphIndex) {
+
+        const preview = document.getElementById(
+            "preview-" + paragraphIndex
+        );
+
+        const segments = paragraphSegments.get(
+            String(paragraphIndex)
+        );
+
+        if (!preview || !segments) {
+            return;
+        }
+
+        preview.replaceChildren();
+
+
+        segments.forEach(segment => {
+
+            /*
+             * Unchanged text is inserted without modification.
+             */
+            if (segment.type === "equal") {
+
+                preview.appendChild(
+                    document.createTextNode(
+                        segment.original
+                    )
+                );
+
                 return;
             }
 
-            const original = originalElement.textContent.trim();
-            const corrected = correctedElement.textContent.trim();
 
-            const originalWords = original.split(/\s+/);
-            const correctedWords = corrected.split(/\s+/);
+            /*
+             * Locate the exact checkbox for this change.
+             */
+            const key =
+                paragraphIndex +
+                ":" +
+                segment.change_index;
 
-            // Use word-level differences to identify changes.
-            const matrix = Array.from(
-                { length: originalWords.length + 1 },
-                () => Array(correctedWords.length + 1).fill(0)
-            );
+            const checkbox = checkboxLookup.get(key);
 
-            // Build an LCS matrix.
-            for (let i = originalWords.length - 1; i >= 0; i--) {
-                for (let j = correctedWords.length - 1; j >= 0; j--) {
+            const accepted = checkbox
+                ? checkbox.checked
+                : false;
 
-                    if (originalWords[i] === correctedWords[j]) {
-                        matrix[i][j] = 1 + matrix[i + 1][j + 1];
-                    } else {
-                        matrix[i][j] = Math.max(
-                            matrix[i + 1][j],
-                            matrix[i][j + 1]
-                        );
-                    }
-                }
+
+            /*
+             * Display accepted or original text.
+             */
+            const span = document.createElement("span");
+
+            if (accepted) {
+
+                span.className = "added";
+                span.textContent = segment.replacement;
+
+            } else {
+
+                span.className = "removed";
+                span.textContent = segment.original;
+
             }
 
-            // Generate change groups.
-            const operations = [];
+            preview.appendChild(span);
 
-            let i = 0;
-            let j = 0;
 
-            while (
-                i < originalWords.length ||
-                j < correctedWords.length
-            ) {
+            /*
+             * Update the corresponding suggestion status.
+             */
+            if (checkbox) {
 
-                if (
-                    i < originalWords.length &&
-                    j < correctedWords.length &&
-                    originalWords[i] === correctedWords[j]
-                ) {
+                const item = checkbox.closest(
+                    ".change-item"
+                );
 
-                    operations.push({
-                        type: "equal",
-                        original: originalWords[i],
-                        replacement: correctedWords[j]
-                    });
-
-                    i++;
-                    j++;
-
-                } else {
-
-                    const startI = i;
-                    const startJ = j;
-
-                    while (
-                        i < originalWords.length &&
-                        j < correctedWords.length &&
-                        originalWords[i] !== correctedWords[j]
-                    ) {
-
-                        if (matrix[i + 1][j] >= matrix[i][j + 1]) {
-                            i++;
-                        } else {
-                            j++;
-                        }
-                    }
-
-                    while (
-                        i < originalWords.length &&
-                        (j >= correctedWords.length ||
-                        matrix[i + 1][j] >= matrix[i][j + 1])
-                    ) {
-                        i++;
-                    }
-
-                    while (
-                        j < correctedWords.length &&
-                        (i >= originalWords.length ||
-                        matrix[i][j + 1] > matrix[i + 1][j])
-                    ) {
-                        j++;
-                    }
-
-                    if (i === startI && j === startJ) {
-                        if (i < originalWords.length) i++;
-                        if (j < correctedWords.length) j++;
-                    }
-
-                    operations.push({
-                        type: "change",
-                        original: originalWords.slice(startI, i).join(" "),
-                        replacement: correctedWords.slice(startJ, j).join(" ")
-                    });
-                }
-            }
-
-            // Build a safe preview using DOM elements.
-            previewElement.replaceChildren();
-
-            let changeIndex = 0;
-
-            operations.forEach(operation => {
-
-                if (operation.type === "equal") {
-
-                    previewElement.appendChild(
-                        document.createTextNode(operation.original + " ")
-                    );
-
+                if (!item) {
                     return;
                 }
 
-                const checkbox = document.querySelector(
-                    '.change-checkbox[data-paragraph="' +
-                    paragraphIndex +
-                    '"][data-change="' +
-                    changeIndex +
-                    '"]'
+                const status = item.querySelector(
+                    ".status-label"
                 );
 
-                const accepted = checkbox && checkbox.checked;
-
-                const span = document.createElement("span");
-
                 if (accepted) {
 
-                    span.className = "added";
-                    span.textContent = operation.replacement;
+                    status.textContent = "Accepted";
+
+                    item.classList.add("accepted");
+                    item.classList.remove("pending");
 
                 } else {
 
-                    span.className = "removed";
-                    span.textContent = operation.original;
+                    status.textContent = "Not reviewed";
+
+                    item.classList.remove("accepted");
+                    item.classList.add("pending");
+
                 }
 
-                previewElement.appendChild(span);
+            }
 
-                if (accepted) {
-                    previewElement.appendChild(
-                        document.createTextNode(" ")
-                    );
-                } else {
-                    previewElement.appendChild(
-                        document.createTextNode(" ")
-                    );
-                }
-
-                if (checkbox) {
-
-                    const status = checkbox
-                        .closest(".change-item")
-                        .querySelector(".status-label");
-
-                    status.textContent = accepted
-                        ? "Accepted"
-                        : "Rejected";
-
-                    checkbox.closest(".change-item").classList.toggle(
-                        "accepted",
-                        accepted
-                    );
-
-                    checkbox.closest(".change-item").classList.toggle(
-                        "rejected",
-                        !accepted
-                    );
-                }
-
-                changeIndex++;
-            });
-        }
-
-        function updateAll() {
-
-            const paragraphIndexes = new Set();
-
-            checkboxes.forEach(checkbox => {
-                paragraphIndexes.add(checkbox.dataset.paragraph);
-            });
-
-            paragraphIndexes.forEach(updatePreview);
-
-            const acceptedCount = Array.from(checkboxes)
-                .filter(checkbox => checkbox.checked)
-                .length;
-
-            document.getElementById(
-                "accepted-count"
-            ).textContent = acceptedCount;
-        }
-
-        checkboxes.forEach(checkbox => {
-            checkbox.addEventListener("change", updateAll);
         });
 
-        updateAll();
+    }
+
+
+    /*
+     * Update every paragraph independently.
+     */
+    function updateAll() {
+
+        paragraphSegments.forEach(
+            (segments, paragraphIndex) => {
+
+                updatePreview(paragraphIndex);
+
+            }
+        );
+
+
+        /*
+         * Update accepted correction count.
+         */
+        const acceptedCount = Array.from(checkboxes)
+            .filter(checkbox => checkbox.checked)
+            .length;
+
+        acceptedCountElement.textContent = acceptedCount;
+
+    }
+
+
+    /*
+     * Listen for individual checkbox changes.
+     */
+    checkboxes.forEach(checkbox => {
+
+        checkbox.addEventListener(
+            "change",
+            updateAll
+        );
 
     });
+
+
+    /*
+     * Initial state: everything is pending.
+     */
+    updateAll();
+
+});
+
 </script>
 
 {% endblock %}

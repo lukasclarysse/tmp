@@ -1,6 +1,5 @@
 
 import os
-import io
 import logging
 
 from flask import (
@@ -21,6 +20,7 @@ from app import db
 from app.models import Document, ProofreadingRun
 from document_processing.parser import extract_paragraphs
 from document_processing.writer import create_corrected_document
+from document_processing.diff import build_diff
 from agents.proofreading import ProofreadingAgent
 from llm.mock import MockLLM
 from llm.ollama import OllamaProvider
@@ -37,10 +37,10 @@ def create_proofreading_agent(paragraphs):
     provider_name = current_app.config["LLM_PROVIDER"]
 
     if provider_name == "mock":
+
         mock_response = [
             {
-                "corrected_text": paragraph["text"],
-                "changes": []
+                "corrected_text": paragraph["text"]
             }
             for paragraph in paragraphs
         ]
@@ -48,6 +48,7 @@ def create_proofreading_agent(paragraphs):
         provider = MockLLM(mock_response)
 
     elif provider_name == "ollama":
+
         provider = OllamaProvider(
             model=current_app.config["LLM_MODEL"],
             base_url=current_app.config["LLM_BASE_URL"],
@@ -75,7 +76,10 @@ def proofread(document_id):
     ).first_or_404()
 
     if not document.original_filename.lower().endswith(".docx"):
-        flash("Only DOCX documents are currently supported.", "error")
+        flash(
+            "Only DOCX documents are currently supported.",
+            "error"
+        )
         return redirect(url_for("documents.dashboard"))
 
     file_path = os.path.join(
@@ -84,16 +88,26 @@ def proofread(document_id):
     )
 
     if not os.path.isfile(file_path):
-        flash("The uploaded document could not be found.", "error")
+        flash(
+            "The uploaded document could not be found.",
+            "error"
+        )
         return redirect(url_for("documents.dashboard"))
 
     try:
-        logger.info("Starting proofreading for document %s", document.id)
+
+        logger.info(
+            "Starting proofreading for document %s",
+            document.id
+        )
 
         paragraphs = extract_paragraphs(file_path)
 
         if not paragraphs:
-            flash("This document contains no readable paragraphs.", "error")
+            flash(
+                "This document contains no readable paragraphs.",
+                "error"
+            )
             return redirect(url_for("documents.dashboard"))
 
         agent = create_proofreading_agent(paragraphs)
@@ -117,7 +131,8 @@ def proofread(document_id):
                 "paragraph_id": paragraph["paragraph_id"],
                 "original_text": result["original_text"],
                 "corrected_text": result["corrected_text"],
-                "changes": result["changes"]
+                "changes": result["changes"],
+                "diff_segments": result["diff_segments"]
             })
 
         proofreading_run = ProofreadingRun(
@@ -135,7 +150,10 @@ def proofread(document_id):
             document.id
         )
 
-        flash("Proofreading completed successfully!", "success")
+        flash(
+            "Proofreading completed successfully!",
+            "success"
+        )
 
         return redirect(
             url_for(
@@ -145,6 +163,7 @@ def proofread(document_id):
         )
 
     except Exception:
+
         db.session.rollback()
 
         logger.exception(
@@ -168,6 +187,32 @@ def results(run_id):
         id=run_id,
         user_id=current_user.id
     ).first_or_404()
+
+    # Support older runs created before diff_segments existed.
+    for paragraph in proofreading_run.result:
+
+        if "diff_segments" not in paragraph:
+
+            paragraph["diff_segments"] = build_diff(
+                paragraph["original_text"],
+                paragraph["corrected_text"]
+            )
+
+        # Ensure change indices match the canonical segments.
+        paragraph["changes"] = [
+            {
+                **change,
+                "index": segment["change_index"]
+            }
+            for change, segment in zip(
+                paragraph.get("changes", []),
+                [
+                    segment
+                    for segment in paragraph["diff_segments"]
+                    if segment["type"] == "change"
+                ]
+            )
+        ]
 
     return render_template(
         "proofreading.html",
@@ -199,14 +244,20 @@ def download_corrected(run_id):
     )
 
     if not os.path.isfile(file_path):
-        flash("The original document could not be found.", "error")
+        flash(
+            "The original document could not be found.",
+            "error"
+        )
+
         return redirect(
             url_for("processing.results", run_id=run_id)
         )
 
     try:
-        # Each selected value has the format paragraph_id:change_index.
-        accepted_changes = set(request.form.getlist("accepted_changes"))
+
+        accepted_changes = set(
+            request.form.getlist("accepted_changes")
+        )
 
         corrected_file = create_corrected_document(
             file_path=file_path,
@@ -218,9 +269,13 @@ def download_corrected(run_id):
             document.original_filename
         )
 
-        name_without_extension = os.path.splitext(original_name)[0]
+        name_without_extension = os.path.splitext(
+            original_name
+        )[0]
 
-        download_name = f"{name_without_extension}_corrected.docx"
+        download_name = (
+            f"{name_without_extension}_corrected.docx"
+        )
 
         return send_file(
             corrected_file,
@@ -233,6 +288,7 @@ def download_corrected(run_id):
         )
 
     except Exception:
+
         logger.exception(
             "Failed to generate corrected document for run %s",
             run_id

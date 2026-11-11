@@ -1,8 +1,9 @@
 
-import difflib
 import io
 
 from docx import Document
+
+from document_processing.diff import build_diff
 
 
 def apply_accepted_changes(
@@ -10,42 +11,35 @@ def apply_accepted_changes(
     corrected_text: str,
     changes: list,
     paragraph_id: int,
-    accepted_changes: set
+    accepted_changes: set,
+    diff_segments: list = None
 ) -> str:
-    """
-    Apply only the changes accepted by the user.
 
-    Rejected changes retain their original wording.
-    """
+    if diff_segments is None:
+        diff_segments = build_diff(
+            original_text,
+            corrected_text
+        )
 
-    original_words = original_text.split()
-    corrected_words = corrected_text.split()
+    output = []
 
-    matcher = difflib.SequenceMatcher(
-        None,
-        original_words,
-        corrected_words
-    )
+    for segment in diff_segments:
 
-    output_words = []
-    change_index = 0
+        if segment["type"] == "equal":
 
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            output.append(segment["original"])
+            continue
 
-        if tag == "equal":
-            output_words.extend(original_words[i1:i2])
+        selection_id = (
+            f"{paragraph_id}:{segment['change_index']}"
+        )
 
+        if selection_id in accepted_changes:
+            output.append(segment["replacement"])
         else:
-            selection_id = f"{paragraph_id}:{change_index}"
+            output.append(segment["original"])
 
-            if selection_id in accepted_changes:
-                output_words.extend(corrected_words[j1:j2])
-            else:
-                output_words.extend(original_words[i1:i2])
-
-            change_index += 1
-
-    return " ".join(output_words)
+    return "".join(output)
 
 
 def create_corrected_document(
@@ -54,10 +48,9 @@ def create_corrected_document(
     accepted_changes: set
 ):
     """
-    Create a corrected DOCX document in memory.
+    Generate a corrected DOCX in memory.
 
-    The original document is never modified.
-    Only accepted proofreading suggestions are applied.
+    Only explicitly accepted changes are applied.
     """
 
     document = Document(file_path)
@@ -71,12 +64,21 @@ def create_corrected_document(
 
         paragraph = document.paragraphs[paragraph_id]
 
+        diff_segments = result.get("diff_segments")
+
+        if diff_segments is None:
+            diff_segments = build_diff(
+                result["original_text"],
+                result["corrected_text"]
+            )
+
         corrected_text = apply_accepted_changes(
             original_text=result["original_text"],
             corrected_text=result["corrected_text"],
-            changes=result["changes"],
+            changes=result.get("changes", []),
             paragraph_id=paragraph_id,
-            accepted_changes=accepted_changes
+            accepted_changes=accepted_changes,
+            diff_segments=diff_segments
         )
 
         paragraph.text = corrected_text

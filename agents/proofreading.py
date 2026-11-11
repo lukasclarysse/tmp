@@ -1,8 +1,8 @@
 
-import difflib
 import re
 
 from llm.provider import LLMProvider
+from document_processing.diff import build_diff
 
 
 CORRECTION_SCHEMA = {
@@ -71,60 +71,29 @@ TEXT TO PROOFREAD:
         if not corrected_text:
             raise ValueError("The agent returned empty text.")
 
-        # Compare normalized tokens, retaining original text for display.
-        changes = self._get_differences(text, corrected_text)
-
-        return {
-            "original_text": text,
-            "corrected_text": corrected_text,
-            "changes": changes
-        }
-
-    @staticmethod
-    def _get_differences(original: str, corrected: str) -> list:
-
-        # Normalize whitespace for comparison.
-        original_tokens = re.findall(
-            r"\w+|[^\w\s]",
-            original,
-            flags=re.UNICODE
-        )
-
-        corrected_tokens = re.findall(
-            r"\w+|[^\w\s]",
-            corrected,
-            flags=re.UNICODE
-        )
-
-        matcher = difflib.SequenceMatcher(
-            None,
-            original_tokens,
-            corrected_tokens,
-            autojunk=False
+        # Generate the canonical diff exactly once.
+        diff_segments = build_diff(
+            text,
+            corrected_text
         )
 
         changes = []
 
-        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        for segment in diff_segments:
 
-            if tag == "equal":
+            if segment["type"] != "change":
                 continue
 
-            old = " ".join(original_tokens[i1:i2])
-            new = " ".join(corrected_tokens[j1:j2])
+            old = segment["original"]
+            new = segment["replacement"]
 
-            if old == new:
-                continue
-
-            category = ProofreadingAgent._classify_change(
-                old,
-                new
-            )
+            category = self._classify_change(old, new)
 
             changes.append({
+                "index": segment["change_index"],
                 "original": old,
                 "replacement": new,
-                "explanation": ProofreadingAgent._explain_change(
+                "explanation": self._explain_change(
                     old,
                     new,
                     category
@@ -132,7 +101,12 @@ TEXT TO PROOFREAD:
                 "category": category
             })
 
-        return changes
+        return {
+            "original_text": text,
+            "corrected_text": corrected_text,
+            "changes": changes,
+            "diff_segments": diff_segments
+        }
 
     @staticmethod
     def _classify_change(original: str, replacement: str) -> str:
@@ -148,16 +122,17 @@ TEXT TO PROOFREAD:
         ):
             return "punctuation"
 
-        if (
-            original.isalpha()
-            and replacement.isalpha()
-        ):
+        if original.isalpha() and replacement.isalpha():
             return "grammar"
 
         return "grammar"
 
     @staticmethod
-    def _explain_change(original: str, replacement: str, category: str) -> str:
+    def _explain_change(
+        original: str,
+        replacement: str,
+        category: str
+    ) -> str:
 
         if not original:
             return f"Added '{replacement}'."
