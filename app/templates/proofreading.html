@@ -1,4 +1,3 @@
-
 {% extends "base.html" %}
 
 {% block title %}Proofreading Results{% endblock %}
@@ -8,21 +7,19 @@
 <h1>Proofreading Results</h1>
 
 <p>
-    Review the suggested corrections below.
-    Accept individual suggestions before downloading your corrected document.
+    Review your suggested corrections, accept the changes you want,
+    and ask the AI assistant questions about your writing.
 </p>
 
 <style>
-    .proofread-card {
+    .proofread-card,
+    .chatbot-card {
         background: #fffdf9;
         padding: 25px;
         margin-bottom: 25px;
         border-radius: 12px;
         border: 1px solid #eee6dc;
-    }
-
-    .proofread-card h2 {
-        margin-top: 0;
+        box-shadow: 0 3px 12px rgba(105, 91, 76, 0.05);
     }
 
     .preview-text {
@@ -58,11 +55,6 @@
         padding: 15px 10px;
         border-bottom: 1px solid #eee6dc;
         border-radius: 6px;
-        transition: background 0.2s ease;
-    }
-
-    .change-item:last-child {
-        border-bottom: none;
     }
 
     .change-description {
@@ -92,18 +84,10 @@
         width: auto;
         margin: 0;
         accent-color: #87977f;
-        cursor: pointer;
     }
 
-    /* Only accepted changes receive a background. */
     .change-item.accepted {
         background: #f4f8f2;
-    }
-
-    /* Pending changes remain completely neutral. */
-    .change-item.pending {
-        opacity: 1;
-        background: transparent;
     }
 
     .status-label {
@@ -127,8 +111,120 @@
         margin: 4px 0;
     }
 
+    .chat-description {
+        color: #a39a90;
+        font-size: 14px;
+    }
+
+    .chat-context {
+        background: #f2f5ef;
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 15px;
+        font-size: 13px;
+    }
+
+    .chat-messages {
+        height: 350px;
+        overflow-y: auto;
+        border: 1px solid #eee6dc;
+        border-radius: 9px;
+        padding: 15px;
+        margin-bottom: 15px;
+        background: #fdfbf7;
+    }
+
+    .chat-message {
+        padding: 12px 15px;
+        margin-bottom: 12px;
+        border-radius: 9px;
+        max-width: 90%;
+        line-height: 1.6;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+    }
+
+    .chat-message.user {
+        background: #e6eee3;
+        margin-left: auto;
+    }
+
+    .chat-message.assistant {
+        background: #f1e9df;
+        margin-right: auto;
+    }
+
+    .chat-message.error {
+        background: #f7e5e2;
+        color: #a36560;
+    }
+
+    .chat-message strong {
+        display: block;
+        font-size: 12px;
+        margin-bottom: 5px;
+        color: #75866f;
+    }
+
+    .chat-input-area {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .chat-input-area input {
+        flex: 1;
+        margin: 0;
+        min-width: 0;
+    }
+
+    .chat-options {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 15px;
+    }
+
+    .chat-options button {
+        background: #f2f5ef;
+        color: #62775c;
+        border: 1px solid #dce5d7;
+        padding: 8px 12px;
+        border-radius: 7px;
+        cursor: pointer;
+        font-family: inherit;
+    }
+
+    .chatbot-card button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .chat-loading {
+        color: #a39a90;
+        font-style: italic;
+        font-size: 13px;
+        margin-bottom: 10px;
+    }
+
+    .chat-clear,
+    .ask-change-button {
+        background: transparent;
+        border: none;
+        color: #75866f;
+        cursor: pointer;
+        padding: 5px 0;
+        font-family: inherit;
+    }
+
+    .chat-clear {
+        color: #a17d78;
+        margin-top: 10px;
+    }
+
     @media (max-width: 600px) {
-        .proofread-card {
+        .proofread-card,
+        .chatbot-card {
             padding: 18px;
         }
 
@@ -136,9 +232,21 @@
             align-items: flex-start;
             flex-direction: column;
         }
+
+        .chat-input-area {
+            flex-direction: column;
+        }
+
+        .chat-input-area input,
+        .chat-input-area button {
+            width: 100%;
+        }
+
+        .chat-messages {
+            height: 300px;
+        }
     }
 </style>
-
 
 {% set total_changes = namespace(count=0) %}
 
@@ -147,9 +255,7 @@
         total_changes.count + paragraph.changes|length %}
 {% endfor %}
 
-
 <div class="summary">
-
     <p>
         <strong>{{ results|length }}</strong>
         paragraphs reviewed
@@ -164,9 +270,7 @@
         <strong id="accepted-count">0</strong>
         corrections accepted
     </p>
-
 </div>
-
 
 <form
     action="{{ url_for(
@@ -183,10 +287,8 @@
         value="{{ csrf_token() }}"
     >
 
-
     {% for paragraph in results %}
 
-        {# Store the outer loop index before entering nested loops. #}
         {% set paragraph_index = loop.index0 %}
 
         <section class="proofread-card">
@@ -200,13 +302,10 @@
                 id="preview-{{ paragraph_index }}"
             ></p>
 
-
-            {# Store the canonical backend-generated diff. #}
             <script
                 type="application/json"
                 id="segments-{{ paragraph_index }}"
             >{{ paragraph.diff_segments | tojson }}</script>
-
 
             {% if paragraph.changes %}
 
@@ -215,7 +314,7 @@
                 {% for change in paragraph.changes %}
 
                     <div
-                        class="change-item pending"
+                        class="change-item"
                         data-paragraph="{{ paragraph_index }}"
                         data-change="{{ change.index }}"
                     >
@@ -223,40 +322,43 @@
                         <div class="change-description">
 
                             <strong>
-
                                 {% if change.original %}
                                     <span class="removed">{{ change.original }}</span>
                                 {% else %}
                                     <span class="hint">Nothing</span>
                                 {% endif %}
 
-                                →
-                                
+                                &rarr;
+
                                 {% if change.replacement %}
                                     <span class="added">{{ change.replacement }}</span>
                                 {% else %}
                                     <span class="hint">Nothing</span>
                                 {% endif %}
-
                             </strong>
 
                             <small>
                                 {{ change.category | capitalize }}
                             </small>
 
-                            <p>
-                                {{ change.explanation }}
-                            </p>
+                            <p>{{ change.explanation }}</p>
 
                             <div class="status-label">
                                 Not reviewed
                             </div>
 
+                            <button
+                                type="button"
+                                class="ask-change-button"
+                                data-paragraph="{{ paragraph_index }}"
+                                data-change="{{ loop.index0 }}"
+                            >
+                                Ask AI about this correction
+                            </button>
+
                         </div>
 
-
                         <label>
-
                             <input
                                 type="checkbox"
                                 class="change-checkbox"
@@ -265,9 +367,7 @@
                                 data-paragraph="{{ paragraph_index }}"
                                 data-change="{{ change.index }}"
                             >
-
                             Accept
-
                         </label>
 
                     </div>
@@ -286,16 +386,117 @@
 
     {% endfor %}
 
-
-    <button
-        type="submit"
-        class="primary-button"
-    >
+    <button type="submit" class="primary-button">
         Download corrected document
     </button>
 
 </form>
 
+{# =====================================================
+   AI CHATBOT INTERFACE
+   ===================================================== #}
+
+<section class="chatbot-card" id="chatbot">
+
+    <h2>AI Writing Assistant</h2>
+
+    <p class="chat-description">
+        Have questions about your proofreading results?
+        Ask me about grammar, spelling, punctuation or writing.
+    </p>
+
+    <div class="chat-context" id="chat-context">
+        <strong>Context:</strong>
+        Discussing your entire document.
+    </div>
+
+    <div class="chat-options">
+
+        <button
+            type="button"
+            data-question="Can you summarise the corrections made to my document?"
+        >
+            Summarise corrections
+        </button>
+
+        <button
+            type="button"
+            data-question="What are the most common grammar mistakes in my document?"
+        >
+            Common mistakes
+        </button>
+
+        <button
+            type="button"
+            data-question="Can you give me some tips to improve my writing?"
+        >
+            Writing tips
+        </button>
+
+    </div>
+
+    <div
+        class="chat-messages"
+        id="chat-messages"
+        aria-live="polite"
+    >
+
+        <div class="chat-message assistant">
+
+            <strong>DocuFix AI</strong>
+
+            Hello! I'm your writing assistant.
+
+            You can ask me anything about your proofreading results.
+            You can also click "Ask AI about this correction" to discuss
+            an individual suggestion.
+
+        </div>
+
+    </div>
+
+    <div
+        class="chat-loading"
+        id="chat-loading"
+        hidden
+    >
+        DocuFix is thinking...
+    </div>
+
+    <form id="chat-form">
+
+        <div class="chat-input-area">
+
+            <input
+                type="text"
+                id="chat-input"
+                placeholder="Ask a question about your document..."
+                maxlength="2000"
+                autocomplete="off"
+                required
+            >
+
+            <button
+                type="submit"
+                class="primary-button"
+                id="chat-send"
+            >
+                Send
+            </button>
+
+        </div>
+
+    </form>
+
+    <button
+        type="button"
+        class="chat-clear"
+        id="chat-clear"
+    >
+        Clear conversation
+    </button>
+
+</section>
 
 <p>
     <a href="{{ url_for('documents.dashboard') }}">
@@ -305,228 +506,229 @@
 
 
 <script>
-
 document.addEventListener("DOMContentLoaded", function () {
-
-    const checkboxes = document.querySelectorAll(
-        ".change-checkbox"
-    );
-
-    const acceptedCountElement = document.getElementById(
-        "accepted-count"
-    );
-
-
-    /*
-     * Cache diff segments separately for every paragraph.
-     */
+    // -----------------------------------------------------
+    // Proofreading preview and accepted-change counter
+    // -----------------------------------------------------
+    const checkboxes = Array.from(document.querySelectorAll(".change-checkbox"));
+    const acceptedCountElement = document.getElementById("accepted-count");
     const paragraphSegments = new Map();
-
-    document.querySelectorAll(
-        'script[id^="segments-"]'
-    ).forEach(element => {
-
-        const paragraphIndex = element.id.replace(
-            "segments-",
-            ""
-        );
-
-        try {
-
-            paragraphSegments.set(
-                paragraphIndex,
-                JSON.parse(element.textContent)
-            );
-
-        } catch (error) {
-
-            console.error(
-                "Failed to parse paragraph diff:",
-                paragraphIndex,
-                error
-            );
-
-        }
-
-    });
-
-
-    /*
-     * Build a lookup table for checkboxes.
-     * Each checkbox is identified by paragraph + change index.
-     */
     const checkboxLookup = new Map();
 
-    checkboxes.forEach(checkbox => {
-
-        const key =
-            checkbox.dataset.paragraph +
-            ":" +
-            checkbox.dataset.change;
-
-        checkboxLookup.set(key, checkbox);
-
+    document.querySelectorAll('script[id^="segments-"]').forEach(element => {
+        const paragraphIndex = element.id.replace("segments-", "");
+        try {
+            paragraphSegments.set(paragraphIndex, JSON.parse(element.textContent));
+        } catch (error) {
+            console.error("Could not parse diff segments:", error);
+        }
     });
 
+    checkboxes.forEach(checkbox => {
+        const key = `${checkbox.dataset.paragraph}:${checkbox.dataset.change}`;
+        checkboxLookup.set(key, checkbox);
+    });
 
-    /*
-     * Render one paragraph using the backend diff segments.
-     */
     function updatePreview(paragraphIndex) {
-
-        const preview = document.getElementById(
-            "preview-" + paragraphIndex
-        );
-
-        const segments = paragraphSegments.get(
-            String(paragraphIndex)
-        );
-
-        if (!preview || !segments) {
-            return;
-        }
+        const preview = document.getElementById(`preview-${paragraphIndex}`);
+        const segments = paragraphSegments.get(String(paragraphIndex));
+        if (!preview || !segments) return;
 
         preview.replaceChildren();
-
-
         segments.forEach(segment => {
-
-            /*
-             * Unchanged text is inserted without modification.
-             */
             if (segment.type === "equal") {
-
-                preview.appendChild(
-                    document.createTextNode(
-                        segment.original
-                    )
-                );
-
+                preview.appendChild(document.createTextNode(segment.original));
                 return;
             }
 
-
-            /*
-             * Locate the exact checkbox for this change.
-             */
-            const key =
-                paragraphIndex +
-                ":" +
-                segment.change_index;
-
+            const key = `${paragraphIndex}:${segment.change_index}`;
             const checkbox = checkboxLookup.get(key);
-
-            const accepted = checkbox
-                ? checkbox.checked
-                : false;
-
-
-            /*
-             * Display accepted or original text.
-             */
+            const accepted = Boolean(checkbox && checkbox.checked);
             const span = document.createElement("span");
-
-            if (accepted) {
-
-                span.className = "added";
-                span.textContent = segment.replacement;
-
-            } else {
-
-                span.className = "removed";
-                span.textContent = segment.original;
-
-            }
-
+            span.className = accepted ? "added" : "removed";
+            span.textContent = accepted ? segment.replacement : segment.original;
             preview.appendChild(span);
 
-
-            /*
-             * Update the corresponding suggestion status.
-             */
             if (checkbox) {
-
-                const item = checkbox.closest(
-                    ".change-item"
-                );
-
-                if (!item) {
-                    return;
-                }
-
-                const status = item.querySelector(
-                    ".status-label"
-                );
-
-                if (accepted) {
-
-                    status.textContent = "Accepted";
-
-                    item.classList.add("accepted");
-                    item.classList.remove("pending");
-
-                } else {
-
-                    status.textContent = "Not reviewed";
-
-                    item.classList.remove("accepted");
-                    item.classList.add("pending");
-
-                }
-
+                const item = checkbox.closest(".change-item");
+                const status = item && item.querySelector(".status-label");
+                if (status) status.textContent = accepted ? "Accepted" : "Not reviewed";
+                if (item) item.classList.toggle("accepted", accepted);
             }
-
         });
-
     }
 
+    function updateAllPreviews() {
+        paragraphSegments.forEach((segments, paragraphIndex) => updatePreview(paragraphIndex));
+        if (acceptedCountElement) {
+            acceptedCountElement.textContent = checkboxes.filter(box => box.checked).length;
+        }
+    }
 
-    /*
-     * Update every paragraph independently.
-     */
-    function updateAll() {
+    checkboxes.forEach(checkbox => checkbox.addEventListener("change", updateAllPreviews));
+    updateAllPreviews();
 
-        paragraphSegments.forEach(
-            (segments, paragraphIndex) => {
+    // -----------------------------------------------------
+    // Chatbot: matches POST /chat/<run_id> in chatbot.py
+    // -----------------------------------------------------
+    const chatForm = document.getElementById("chat-form");
+    const chatInput = document.getElementById("chat-input");
+    const chatMessages = document.getElementById("chat-messages");
+    const chatLoading = document.getElementById("chat-loading");
+    const chatSend = document.getElementById("chat-send");
+    const chatContext = document.getElementById("chat-context");
+    const chatClear = document.getElementById("chat-clear");
+    const chatSection = document.getElementById("chatbot");
 
-                updatePreview(paragraphIndex);
+    if (!chatForm || !chatInput || !chatMessages || !chatSend) {
+        console.error("Chatbot elements could not be found.");
+        return;
+    }
 
+    const chatUrl = {{ url_for('chatbot.chat', run_id=proofreading_run.id) | tojson }};
+    const csrfToken = {{ csrf_token() | tojson }};
+    let conversationHistory = [];
+    let selectedParagraph = null;
+    let selectedChange = null;
+    let isSending = false;
+
+    function addMessage(role, content) {
+        const message = document.createElement("div");
+        message.className = `chat-message ${role}`;
+        const heading = document.createElement("strong");
+        heading.textContent = role === "user" ? "You" : (role === "error" ? "Error" : "DocuFix AI");
+        const body = document.createElement("div");
+        body.textContent = content;
+        message.append(heading, body);
+        chatMessages.appendChild(message);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function updateContextLabel() {
+        if (!chatContext) return;
+        if (selectedParagraph === null) {
+            chatContext.textContent = "Context: Discussing your entire document.";
+            return;
+        }
+        let label = `Context: Discussing paragraph ${selectedParagraph + 1}`;
+        if (selectedChange !== null) label += `, correction ${selectedChange + 1}`;
+        chatContext.textContent = label;
+    }
+
+    function setChatContext(paragraphIndex, changeIndex = null) {
+        selectedParagraph = paragraphIndex;
+        selectedChange = changeIndex;
+        updateContextLabel();
+        if (chatSection) chatSection.scrollIntoView({ behavior: "smooth", block: "start" });
+        chatInput.focus();
+    }
+
+    async function sendMessage(question) {
+        const cleanQuestion = question.trim();
+        if (isSending || !cleanQuestion) return;
+
+        isSending = true;
+        chatSend.disabled = true;
+        chatInput.disabled = true;
+        if (chatLoading) chatLoading.hidden = false;
+        addMessage("user", cleanQuestion);
+
+        const historyForRequest = conversationHistory.slice(-10);
+        const payload = {
+            question: cleanQuestion,
+            history: historyForRequest,
+            paragraph_index: selectedParagraph,
+            change_index: selectedChange
+        };
+
+        try {
+            const response = await fetch(chatUrl, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRFToken": csrfToken
+                },
+                body: JSON.stringify(payload)
+            });
+
+            let data;
+            try {
+                data = await response.json();
+            } catch (_) {
+                throw new Error("The server returned an invalid response. Please try again.");
             }
-        );
 
+            if (!response.ok) {
+                throw new Error(data.error || "Unable to contact the AI assistant.");
+            }
+            if (typeof data.answer !== "string" || !data.answer.trim()) {
+                throw new Error("The AI assistant returned an empty response.");
+            }
 
-        /*
-         * Update accepted correction count.
-         */
-        const acceptedCount = Array.from(checkboxes)
-            .filter(checkbox => checkbox.checked)
-            .length;
-
-        acceptedCountElement.textContent = acceptedCount;
-
+            conversationHistory.push(
+                { role: "user", content: cleanQuestion },
+                { role: "assistant", content: data.answer }
+            );
+            conversationHistory = conversationHistory.slice(-10);
+            addMessage("assistant", data.answer);
+        } catch (error) {
+            console.error("Chatbot error:", error);
+            addMessage("error", error.message || "Something went wrong. Please try again.");
+        } finally {
+            isSending = false;
+            chatSend.disabled = false;
+            chatInput.disabled = false;
+            if (chatLoading) chatLoading.hidden = true;
+            chatInput.focus();
+        }
     }
 
-
-    /*
-     * Listen for individual checkbox changes.
-     */
-    checkboxes.forEach(checkbox => {
-
-        checkbox.addEventListener(
-            "change",
-            updateAll
-        );
-
+    chatForm.addEventListener("submit", event => {
+        event.preventDefault();
+        const question = chatInput.value.trim();
+        if (!question || isSending) return;
+        chatInput.value = "";
+        sendMessage(question);
     });
 
+    // Suggested prompts at the top of the chatbot.
+    document.querySelectorAll(".chat-options [data-question]").forEach(button => {
+        button.addEventListener("click", () => sendMessage(button.dataset.question || ""));
+    });
 
-    /*
-     * Initial state: everything is pending.
-     */
-    updateAll();
+    // Ask about a specific suggestion. change.index in the button is the
+    // position in paragraph.changes, which is what the backend validates.
+    document.querySelectorAll(".ask-change-button").forEach(button => {
+        button.addEventListener("click", () => {
+            const paragraphIndex = Number(button.dataset.paragraph);
+            const changeIndex = Number(button.dataset.change);
+            if (!Number.isInteger(paragraphIndex) || !Number.isInteger(changeIndex)) return;
+            setChatContext(paragraphIndex, changeIndex);
+            sendMessage("Can you explain this suggested correction and why it is needed?");
+        });
+    });
 
+    if (chatClear) {
+        chatClear.addEventListener("click", () => {
+            conversationHistory = [];
+            selectedParagraph = null;
+            selectedChange = null;
+            chatMessages.replaceChildren();
+            addMessage("assistant", "Conversation cleared. What would you like to know about your document?");
+            updateContextLabel();
+            chatInput.focus();
+        });
+    }
+
+    chatInput.addEventListener("keydown", event => {
+        if (event.key === "Enter" && !event.shiftKey && chatInput.tagName !== "TEXTAREA") {
+            event.preventDefault();
+            chatForm.requestSubmit();
+        }
+    });
+
+    updateContextLabel();
 });
-
 </script>
 
 {% endblock %}

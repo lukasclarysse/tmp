@@ -30,10 +30,12 @@ def create_app():
     from app.routes.documents import documents
     from app.routes.processing import processing
     from app.routes.suggestions import suggestions
+    from app.routes.chatbot import chatbot
     app.register_blueprint(auth)
     app.register_blueprint(documents)
     app.register_blueprint(processing)
     app.register_blueprint(suggestions)
+    app.register_blueprint(chatbot)
 
     with app.app_context():
         db.create_all()
